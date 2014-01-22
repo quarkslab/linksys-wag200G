@@ -1,0 +1,88 @@
+--- squashfs2.2-r2/squashfs-tools/mksquashfs.c	2005-09-09 00:34:28.000000000 +0200
++++ squashfs2.2-r2-lzma/squashfs-tools/mksquashfs.c	2014-01-14 23:53:45.272724265 +0100
+@@ -44,6 +44,9 @@
+ #include "mksquashfs.h"
+ #include "global.h"
+ 
++#include <LzmaLib.h>
++#define LZMA_HEADER_SIZE    (LZMA_PROPS_SIZE + 8)
++
+ #ifdef SQUASHFS_TRACE
+ #define TRACE(s, args...)		printf("mksquashfs: "s, ## args)
+ #else
+@@ -266,20 +269,67 @@
+ 	}
+ }
+ 
++static int lzma_compress(void *dest, void *src, int size, int block_size,
++		int *error)
++{
++	unsigned char *d = dest;
++	size_t props_size = LZMA_PROPS_SIZE,
++		outlen = block_size - LZMA_HEADER_SIZE;
++	int res;
++
++	res = LzmaCompress(dest + LZMA_HEADER_SIZE, &outlen, src, size, dest,
++		&props_size, 5, block_size, 3, 0, 2, 32, 1);
++	
++	if(res == SZ_ERROR_OUTPUT_EOF) {
++		/*
++		 * Output buffer overflow.  Return out of buffer space error
++		 */
++		return 0;
++	}
++
++	if(res != SZ_OK) {
++		/*
++		 * All other errors return failure, with the compressor
++		 * specific error code in *error
++		 */
++		*error = res;
++		return -1;
++	}
++
++	/*
++	 * Fill in the 8 byte little endian uncompressed size field in the
++	 * LZMA header.  8 bytes is excessively large for squashfs but
++	 * this is the standard LZMA header and which is expected by the kernel
++	 * code
++	 */
++	d[LZMA_PROPS_SIZE] = size & 255;
++	d[LZMA_PROPS_SIZE + 1] = (size >> 8) & 255;
++	d[LZMA_PROPS_SIZE + 2] = (size >> 16) & 255;
++	d[LZMA_PROPS_SIZE + 3] = (size >> 24) & 255;
++	d[LZMA_PROPS_SIZE + 4] = 0;
++	d[LZMA_PROPS_SIZE + 5] = 0;
++	d[LZMA_PROPS_SIZE + 6] = 0;
++	d[LZMA_PROPS_SIZE + 7] = 0;
++
++	/*
++	 * Success, return the compressed size.  Outlen returned by the LZMA
++	 * compressor does not include the LZMA header space
++	 */
++	return outlen + LZMA_HEADER_SIZE;
++}
+ 
+ unsigned int mangle(char *d, char *s, int size, int block_size, int uncompressed, int data_block)
+ {
+ 	unsigned long c_byte = block_size << 1;
+-	unsigned int res;
++	unsigned int res = SZ_OK;
+ 
+-	if(!uncompressed && (res = compress2(d, &c_byte, s, size, 9)) != Z_OK) {
+-		if(res == Z_MEM_ERROR)
+-			BAD_ERROR("zlib::compress failed, not enough memory\n");
+-		else if(res == Z_BUF_ERROR)
+-			BAD_ERROR("zlib::compress failed, not enough room in output buffer\n");
+-		else
++	if(!uncompressed) {
++	    //res = compress2(d, &c_byte, s, size, 9);
++		c_byte = lzma_compress(d, s, size, block_size, &res);
++		if (res != SZ_OK) {
+ 			BAD_ERROR("zlib::compress failed, unknown error %d\n", res);
+-		return 0;
++			return 0;
++		}
+ 	}
+ 
+ 	if(uncompressed || c_byte >= size) {
