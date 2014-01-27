@@ -1,7 +1,7 @@
-Linksys WAG200N tools
+Linksys WAG200G tools
 =====================
 
-This repository contains some binaries and tools that will run on the Linksys WAG200N router.
+This repository contains some binaries and tools that will run on the Linksys WAG200G router.
 It also contains a SquashFS image of the root filesystem with the "TCP-32764 backdoor" removed.
 
 Please read http://blog.quarkslab.com/tcp-backdoor-32764-or-how-we-could-patch-the-internet-or-part-of-it.html for more information.
